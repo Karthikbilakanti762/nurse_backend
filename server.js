@@ -29,7 +29,7 @@ app.use(limiter);
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? process.env.FRONTEND_URL // Use environment variable in production
-    : ['http://localhost:3000', 'http://localhost:5000'], // Development origins
+    : ['http://localhost:3000', 'http://localhost:5000','http://192.168.29.153:5000'], // Development origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true

@@ -37,6 +37,7 @@ const createPatient = async (req, res) => {
         uploadStream.on('error', reject);
       });
     }
+
     // Create patient (do NOT include vitals)
     const newPatient = new Patient({
       name,
@@ -48,12 +49,40 @@ const createPatient = async (req, res) => {
     });
     const savedPatient = await newPatient.save();
 
+    // Handle lab reports if any
+    if (req.files && req.files['labReports'] && req.files['labReports'].length > 0) {
+      console.log('Processing lab reports:', req.files['labReports'].length);
+      for (const labReportFile of req.files['labReports']) {
+        console.log('Processing lab report file:', labReportFile.originalname);
+        const uploadStream = bucket.openUploadStream(labReportFile.originalname, { contentType: labReportFile.mimetype });
+        uploadStream.end(labReportFile.buffer);
+        let result = null;
+        await new Promise((resolve, reject) => {
+          uploadStream.on('finish', () => {
+            result = uploadStream.id;
+            resolve();
+          });
+          uploadStream.on('error', reject);
+        });
+
+        // Create lab report entry
+        const labReport = new LabReport({
+          patientId: savedPatient._id,
+          testName: 'Lab Report', // Default name, can be updated later
+          testDate: new Date(),
+          result
+        });
+        const savedReport = await labReport.save();
+        savedPatient.labReports.push(savedReport._id);
+      }
+      await savedPatient.save();
+    }
+
     // Create first visit for the patient (optionally with vitals)
     let vitalsData = undefined;
     if (vitals) {
       vitalsData = typeof vitals === 'string' ? (() => { try { return JSON.parse(vitals); } catch (e) { return {}; } })() : vitals;
-// Ensure vitals are stored as objects, not strings
-if (typeof vitalsData !== 'object' || Array.isArray(vitalsData)) vitalsData = {};
+      if (typeof vitalsData !== 'object' || Array.isArray(vitalsData)) vitalsData = {};
     }
     const firstVisit = new Visit({
       patientId: savedPatient._id,
@@ -65,13 +94,19 @@ if (typeof vitalsData !== 'object' || Array.isArray(vitalsData)) vitalsData = {}
     savedPatient.visits.push(savedVisit._id);
     await savedPatient.save();
 
+    // Fetch the complete patient data with populated lab reports
+    const completePatient = await Patient.findById(savedPatient._id)
+      .populate('labReports')
+      .populate('visits');
+
     res.status(200).json({
       success: true,
       message: 'Patient registered successfully',
-      patient: savedPatient,
+      patient: completePatient,
       firstVisit: savedVisit
     });
   } catch (error) {
+    console.error('Error in createPatient:', error);
     res.status(500).json({ success: false, error: 'Failed to register patient', details: error.message });
   }
 };
